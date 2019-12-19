@@ -17,6 +17,7 @@ RESPONSE_CHUNK_DELAY = 1
 def render_stats(sock):
     now = datetime.utcnow()
     out = []
+    out.append(b'----- hits -----\r\n')
     for delta in range(3):
         hour_key = (now - timedelta(hours=delta)).strftime('%Y-%m-%d:%H')
         out.append(b'Hour: %s' % hour_key.encode())
@@ -31,6 +32,15 @@ def render_stats(sock):
             avg_hit_time = 0
         out.append(b' * avg. hit time: %f' % avg_hit_time)
         out.append(b'')
+
+    try:
+        with open('var/socket.stat', 'rb') as inp:
+            ss_out = inp.read()
+    except OSError:
+        ss_out = b'Could not read socket stats file'
+    out.append(b'----- sockets -----\r\n')
+    out.append(ss_out)
+
     sock.sendall(
         b'HTTP/1.1 200 OK\r\n'
         b'Content-Type: text/plain\r\n'
@@ -58,31 +68,51 @@ def render_bad_data(chunk_delay, sock):
         sock.sendall(b'\r\n')
 
 
+def render_favicon(sock):
+    sock.sendall((
+        b'HTTP/1.1 404 OK\r\n'
+        b'Content-Length: 0\r\n'
+        b'\r\n'
+    ))
+
+
+def parse_req_url(line):
+    sp1_pos = line.find(b' ', 0, 100)
+    if 3 <= sp1_pos <= 7:
+        sp2_pos = line.find(b' ', sp1_pos + 1, 100)
+        if sp2_pos > -1:
+            return line[sp1_pos + 1:sp2_pos]
+    return None
+
+
 def req_handler(chunk_delay, sock, addr):
     try:
         started = time.time()
         fsock = sock.makefile(mode='rb')
-        is_stats = False
         try:
+            view_id = 'bad'
             with gevent.Timeout(10):
-                idx = 0
-                while True:
+                line = fsock.readline()
+                req_url = parse_req_url(line)
+                #print(b'REQUEST URL: %s' % (req_url or b'NA'))
+                if req_url.startswith(b'/stats'):
+                    view_id = 'stats'
+                elif req_url.startswith(b'/favicon.ico'):
+                    view_id = 'favicon'
+                while line.rstrip():
                     line = fsock.readline()
-                    if idx == 0:
-                        if line.startswith(b'GET /stats'):
-                            is_stats = True
-                    idx += 1
-                    if not line.rstrip():
-                        break
-            if is_stats:
+            if view_id == 'stats':
                 render_stats(sock)
+            elif view_id == 'favicon':
+                render_favicon(sock)
             else:
                 render_bad_data(chunk_delay, sock)
+
         finally:
             fsock.close()
             sock.close()
 
-            if not is_stats:
+            if view_id == 'bad':
                 elapsed = time.time() - started
                 hour_key = datetime.utcnow().strftime('%Y-%m-%d:%H')
                 # Remember statistics
@@ -91,6 +121,8 @@ def req_handler(chunk_delay, sock, addr):
                 rdb.incrby('hr-hits-num:%s' % hour_key, 1)
                 # add this visit time to total time of visits in current hour
                 rdb.incrbyfloat('hr-hits-time:%s' % hour_key, str('%.03f' % elapsed))
+    except BrokenPipeError:
+        pass
     except Exception as ex:
         logging.exception('')
 
