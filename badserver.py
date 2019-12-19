@@ -51,7 +51,7 @@ def render_stats(sock):
 
 
 
-def render_bad_data(chunk_delay, sock):
+def render_fuckoff(chunk_delay, sock):
     initial_data = (
         b'HTTP/1.1 200 OK\r\n'
         b'Content-Type: text/html; charset=utf-8\r\n'
@@ -68,12 +68,26 @@ def render_bad_data(chunk_delay, sock):
         sock.sendall(b'\r\n')
 
 
-def render_favicon(sock):
+def render_404(sock):
     sock.sendall((
         b'HTTP/1.1 404 OK\r\n'
-        b'Content-Length: 0\r\n'
+        b'Content-Type: text/plain\r\n'
+        b'Content-Length: 16\r\n'
         b'\r\n'
+        b'Page Not Found\r\n'
     ))
+
+def render_home(sock):
+    with open('templates/home.html', 'rb') as inp:
+        data = inp.read()
+    sock.sendall((
+        b'HTTP/1.1 404 OK\r\n'
+        b'Content-Type: text/html; charset=utf-8\r\n'
+        b'Content-Length: %d\r\n'
+        b'\r\n'
+        % len(data)
+    ))
+    sock.sendall(data)
 
 
 def parse_req_url(line):
@@ -81,8 +95,18 @@ def parse_req_url(line):
     if 3 <= sp1_pos <= 7:
         sp2_pos = line.find(b' ', sp1_pos + 1, 100)
         if sp2_pos > -1:
-            return line[sp1_pos + 1:sp2_pos]
-    return None
+            qst_pos = line.find(b'?', sp1_pos + 1, sp2_pos)
+            if qst_pos > -1:
+                return (
+                    line[sp1_pos + 1:qst_pos],
+                    line[qst_pos + 1:sp2_pos]
+                )
+            else:
+                return (
+                    line[sp1_pos + 1:sp2_pos],
+                    ''
+                )
+    return None, None
 
 
 def req_handler(chunk_delay, sock, addr):
@@ -90,29 +114,36 @@ def req_handler(chunk_delay, sock, addr):
         started = time.time()
         fsock = sock.makefile(mode='rb')
         try:
-            view_id = 'bad'
+            view_id = '404'
             with gevent.Timeout(10):
                 line = fsock.readline()
-                req_url = parse_req_url(line)
-                #print(b'REQUEST URL: %s' % (req_url or b'NA'))
-                if req_url.startswith(b'/stats'):
+                req_path, req_query = parse_req_url(line)
+                #print(b'PATH: %s' % (req_path or b'NA'))
+                #print(b'QUERY: %s' % (req_query or b'NA'))
+                if req_path == b'/stats':
                     view_id = 'stats'
-                elif req_url.startswith(b'/favicon.ico'):
-                    view_id = 'favicon'
+                elif req_path == b'/fuckoff':
+                    view_id = 'fuckoff'
+                elif req_path == b'/':
+                    view_id = 'home'
                 while line.rstrip():
                     line = fsock.readline()
             if view_id == 'stats':
                 render_stats(sock)
-            elif view_id == 'favicon':
-                render_favicon(sock)
+            elif view_id == 'home':
+                render_home(sock)
+            elif view_id == 'fuckoff':
+                render_fuckoff(chunk_delay, sock)
             else:
-                render_bad_data(chunk_delay, sock)
+                render_404(sock)
 
+        except gevent.Timeout:
+            pass
         finally:
             fsock.close()
             sock.close()
 
-            if view_id == 'bad':
+            if view_id == 'fuckoff':
                 elapsed = time.time() - started
                 hour_key = datetime.utcnow().strftime('%Y-%m-%d:%H')
                 # Remember statistics
