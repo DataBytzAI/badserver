@@ -15,13 +15,32 @@ from gevent.server import StreamServer
 
 rand = SystemRandom()
 RESPONSE_CHUNK_DELAY = 1
-FUCKOFF_CHOICES = [b'slow', b'gzip']
+FUCKOFF_CHOICES = [b'slow', b'gzip', b'honeypot']
+HONEYPOT_HOSTS = [
+    b'hetzner.de',
+    b'spamhaus.org',
+]
+HONEYPOT_PATHS = [
+    b':22', # ssh
+    b':23', # telnet
+    b':25', # smtp
+    b':135', # microsoft
+    b':139', # microsoft
+    b':143', # imap
+    b':445', # microsoft
+    b':3306', # mysql
+    b':3389', # rdp
+    b':8080', # proxy
+    b'/wp-admin/login.php',
+]
+
 REQUEST_MAP = {
     b'/': 'home',
     b'/stats': 'stats',
     b'/fuckoff/random': 'fuckoff_random',
     b'/fuckoff/slow': 'fuckoff_slow',
     b'/fuckoff/gzip': 'fuckoff_gzip',
+    b'/fuckoff/honeypot': 'fuckoff_honeypot',
     b'/home': 'home',
 }
 
@@ -87,8 +106,25 @@ def render_stats(sock):
 def render_fuckoff_random(sock):
     target = rand.choice(FUCKOFF_CHOICES)
     num_sent = sendall_count(sock, (
-        b'HTTP/1.1 302 OK\r\n'
+        b'HTTP/1.1 302 Fuck you\r\n'
         b'Location: /fuckoff/%s\r\n'
+        b'\r\n'
+        % target
+    ))
+    return num_sent
+
+
+def get_random_honeypot():
+    host = rand.choice(HONEYPOT_HOSTS)
+    path = rand.choice(HONEYPOT_PATHS)
+    return b'http://%s%s' % (host, path)
+
+
+def render_fuckoff_honeypot(sock):
+    target = get_random_honeypot()
+    num_sent = sendall_count(sock, (
+        b'HTTP/1.1 302 Fuck you\r\n'
+        b'Location: %s\r\n'
         b'\r\n'
         % target
     ))
@@ -98,7 +134,7 @@ def render_fuckoff_random(sock):
 def render_fuckoff_slow(chunk_delay, sock):
     num_sent = 0
     initial_data = (
-        b'HTTP/1.1 200 OK\r\n'
+        b'HTTP/1.1 200 Fuck you\r\n'
         b'Content-Type: text/html; charset=utf-8\r\n'
         b'Content-Length: 666\r\n'
     )
@@ -121,7 +157,7 @@ def render_fuckoff_gzip(sock):
     fname = 'data/10G.bin.gz'
     file_size = os.path.getsize(fname)
     initial_data = (
-        b'HTTP/1.1 200 OK\r\n'
+        b'HTTP/1.1 200 Fuck you\r\n'
         b'Content-Type: text/html; charset=utf-8\r\n'
         b'Content-Encoding: gzip\r\n'
         b'Content-Length: %d\r\n'
@@ -149,7 +185,7 @@ def render_home(sock):
     with open('templates/home.html', 'rb') as inp:
         data = inp.read()
     sock.sendall((
-        b'HTTP/1.1 200 OK\r\n'
+        b'HTTP/1.1 200 Preved Medved\r\n'
         b'Content-Type: text/html; charset=utf-8\r\n'
         b'Content-Length: %d\r\n'
         b'\r\n'
@@ -206,6 +242,8 @@ def req_handler(chunk_delay, sock, addr):
                 num_sent += render_fuckoff_random(sock)
             elif view_id == 'fuckoff_slow':
                 num_sent += render_fuckoff_slow(chunk_delay, sock)
+            elif view_id == 'fuckoff_honeypot':
+                num_sent += render_fuckoff_honeypot(sock)
             elif view_id == 'fuckoff_gzip':
                 num_sent += render_fuckoff_gzip(sock)
             else:

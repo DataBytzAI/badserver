@@ -25,7 +25,7 @@
 Bad Server
 ----------
 
-Preved Medved! This is bad server. Read more at <a href="https://github.com/lorien/badserver">github.com/lorien/badserver</a>
+Preved Medved! This is bad server. Read more at <a href="https://github.com/lorien/badserver">github.com/lorien/badserver</a> If your web server's log is spammed with requests from dumb bots then you can redirect them to Bad Server and maybe they will fuck off eventually.
 
 
 How Bad it is?
@@ -33,6 +33,7 @@ How Bad it is?
 
 <a href="/fuckoff/slow">/fuckoff/slow</a> - respond with infinite sequence of HTTP headers making 1 second pause before sending each next byte of data
 <a href="/fuckoff/gzip">/fuckoff/gzip</a> - respond with "Content-Encoding: gzip" and serve 12MB content which is equal to 10GB bytes after unpacking
+<a href="/fuckoff/honeypot">/fuckoff/honeypot</a> - redirect to red-flag URL (WP login.php, 25 port, etc) which possibly might trigger sending abuse report to client's internet provider
 <a href="/fuckoff/random">/fuckoff/random</a> - redirect to random one of fuckoff endpoints described above
 <a href="/stats">/stats</a> - return stats
 
