@@ -108,7 +108,7 @@ def render_fuckoff_slow(chunk_delay, sock):
     with gevent.Timeout(60 * 60):
         while True:
             for char in b'Fuck: Off\r\n':
-                num_sent += endall_count(
+                num_sent += sendall_count(
                     sock, char.to_bytes(1, 'big')
                 )
                 time.sleep(chunk_delay)
