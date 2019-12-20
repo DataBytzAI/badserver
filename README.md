@@ -16,6 +16,7 @@ Redirect bots to `bad-server-hostname:8090/fuckoff`
 
 - `/fuckoff/slow` - respond with infinite sequence of HTTP headers making 1 second pause before sending each next byte of data
 - `/fuckoff/gzip` - respond with "Content-Encoding: gzip" and serve 12MB content which is equal to 10GB bytes after unpacking
+- `/fuckoff/honeypot` - redirect to red-flag URL (WP login.php, 25 port, etc) which possibly might trigger sending abuse report to client's internet provider
 - `/fuckoff/random` - redirect to random one of fuckoff endpoints described above
 - `/stats` - return stats
 
