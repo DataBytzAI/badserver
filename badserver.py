@@ -186,7 +186,7 @@ def req_handler(chunk_delay, sock, addr):
             fsock.close()
             sock.close()
 
-            if view_id == 'fuckoff':
+            if view_id.startswith('fuckoff_'):
                 elapsed = time.time() - started
                 hour_key = datetime.utcnow().strftime('%Y-%m-%d:%H')
                 # Remember statistics
