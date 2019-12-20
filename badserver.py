@@ -26,24 +26,45 @@ REQUEST_MAP = {
 }
 
 
+def sendall_count(sock, data, *args, **kwargs):
+    num_sent = len(data)
+    sock.sendall(data, *args, **kwargs)
+    return num_sent
+
+
+def format_bytes(val):
+    suffixes = [b'KB', b'MB', b'GB']
+    suffix = b'B'
+    while val > 1000 and suffixes:
+        val = val / 1024
+        suffix = suffixes.pop(0) 
+    return b'%.02f %s' % (val, suffix)
+
 
 def render_stats(sock):
     now = datetime.utcnow()
     out = []
-    out.append(b'----- hits -----\r\n')
+    out.append(b'----- fuckoff hits -----\r\n')
     for delta in range(3):
         hour_key = (now - timedelta(hours=delta)).strftime('%Y-%m-%d:%H')
         out.append(b'Hour: %s' % hour_key.encode())
         rdb = Redis()
+
         num_hits = int(rdb.get('hr-hits-num:%s' % hour_key) or 0)
-        out.append(b' * hits: %d' % num_hits)
+        out.append(b' * hits          : %d' % num_hits)
+
         total_time = float(rdb.get('hr-hits-time:%s' % hour_key) or 0)
-        out.append(b' * total time: %f' % total_time)
+        out.append(b' * total time    : %.02f' % total_time)
+        
         if num_hits:
             avg_hit_time = total_time / num_hits
         else:
             avg_hit_time = 0
-        out.append(b' * avg. hit time: %f' % avg_hit_time)
+        out.append(b' * avg. hit time : %.02f' % avg_hit_time)
+
+        bytes_sent = int(rdb.get('hr-hits-bytes-sent:%s' % hour_key) or 0)
+        out.append(b' * bytes sent    : %s' % format_bytes(bytes_sent))
+
         out.append(b'')
 
     try:
@@ -65,45 +86,54 @@ def render_stats(sock):
 
 def render_fuckoff_random(sock):
     target = rand.choice(FUCKOFF_CHOICES)
-    sock.sendall((
+    num_sent = sendall_count(sock, (
         b'HTTP/1.1 302 OK\r\n'
         b'Location: /fuckoff/%s\r\n'
         b'\r\n'
         % target
     ))
+    return num_sent
 
 
 def render_fuckoff_slow(chunk_delay, sock):
+    num_sent = 0
     initial_data = (
         b'HTTP/1.1 200 OK\r\n'
         b'Content-Type: text/html; charset=utf-8\r\n'
         b'Content-Length: 666\r\n'
     )
     for char in initial_data:
-        sock.sendall(char.to_bytes(1, 'big'))
+        num_sent += sendall_count(sock, char.to_bytes(1, 'big'))
         time.sleep(chunk_delay)
     with gevent.Timeout(60 * 60):
         while True:
             for char in b'Fuck: Off\r\n':
-                sock.sendall(char.to_bytes(1, 'big'))
+                num_sent += endall_count(
+                    sock, char.to_bytes(1, 'big')
+                )
                 time.sleep(chunk_delay)
-        sock.sendall(b'\r\n')
+        num_sent += sendall_count(sock, b'\r\n')
+    return num_sent
 
 
 def render_fuckoff_gzip(sock):
+    num_sent = 0
     fname = 'data/10G.bin.gz'
     file_size = os.path.getsize(fname)
     initial_data = (
         b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: text/html; charset=utf-8\r\n'
         b'Content-Encoding: gzip\r\n'
         b'Content-Length: %d\r\n'
         b'\r\n'
         % file_size
     )
-    sock.sendall(initial_data)
+    num_sent += sendall_count(sock, initial_data)
     with gevent.Timeout(60 * 10):
         with open(fname, 'rb') as inp:
             sock.sendfile(inp)
+        num_sent += file_size
+    return num_sent
 
 
 def render_404(sock):
@@ -153,6 +183,7 @@ def req_handler(chunk_delay, sock, addr):
         fsock = sock.makefile(mode='rb')
         try:
             view_id = '404'
+            num_sent = 0
             with gevent.Timeout(10):
                 line = fsock.readline()
                 req_path, req_query = parse_req_url(line)
@@ -172,11 +203,11 @@ def req_handler(chunk_delay, sock, addr):
             elif view_id == 'home':
                 render_home(sock)
             elif view_id == 'fuckoff_random':
-                render_fuckoff_random(sock)
+                num_sent += render_fuckoff_random(sock)
             elif view_id == 'fuckoff_slow':
-                render_fuckoff_slow(chunk_delay, sock)
+                num_sent += render_fuckoff_slow(chunk_delay, sock)
             elif view_id == 'fuckoff_gzip':
-                render_fuckoff_gzip(sock)
+                num_sent += render_fuckoff_gzip(sock)
             else:
                 render_404(sock)
 
@@ -195,6 +226,8 @@ def req_handler(chunk_delay, sock, addr):
                 rdb.incrby('hr-hits-num:%s' % hour_key, 1)
                 # add this visit time to total time of visits in current hour
                 rdb.incrbyfloat('hr-hits-time:%s' % hour_key, str('%.03f' % elapsed))
+                # sent bytes
+                rdb.incrby('hr-hits-bytes-sent:%s' % hour_key, num_sent)
     except ConnectionError:
         pass
     except Exception as ex:
