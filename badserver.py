@@ -26,11 +26,11 @@ HONEYPOT_PATHS = [
     b':25', # smtp
     b':135', # microsoft
     b':139', # microsoft
-    b':143', # imap
     b':445', # microsoft
     b':3306', # mysql
     b':3389', # rdp
     b':8080', # proxy
+    b':27017', # mongodb
     b'/wp-admin/login.php',
 ]
 
