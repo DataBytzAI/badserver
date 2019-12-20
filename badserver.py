@@ -15,12 +15,18 @@ from gevent.server import StreamServer
 
 rand = SystemRandom()
 RESPONSE_CHUNK_DELAY = 1
-FUCKOFF_CHOICES = [b'slow', b'gzip', b'honeypot']
+FUCKOFF_CHOICES = [
+    b'slow', b'gzip', b'honeypot'
+]
+FUCKOFF_LOCAL_CHOICES = [
+    b'slow', b'gzip',
+]
 HONEYPOT_HOSTS = [
     b'hetzner.de',
     b'spamhaus.org',
 ]
 HONEYPOT_PATHS = [
+    b':22', # ftp
     b':22', # ssh
     b':23', # telnet
     b':25', # smtp
@@ -37,10 +43,11 @@ HONEYPOT_PATHS = [
 REQUEST_MAP = {
     b'/': 'home',
     b'/stats': 'stats',
-    b'/fuckoff/random': 'fuckoff_random',
     b'/fuckoff/slow': 'fuckoff_slow',
     b'/fuckoff/gzip': 'fuckoff_gzip',
     b'/fuckoff/honeypot': 'fuckoff_honeypot',
+    b'/fuckoff/random': 'fuckoff_random',
+    b'/fuckoff/random/local': 'fuckoff_random_local',
     b'/home': 'home',
 }
 
@@ -103,8 +110,11 @@ def render_stats(sock):
         sock.sendall(item + b'\r\n')
 
 
-def render_fuckoff_random(sock):
-    target = rand.choice(FUCKOFF_CHOICES)
+def render_fuckoff_random(sock, local=False):
+    if local:
+        target = rand.choice(FUCKOFF_LOCAL_CHOICES)
+    else:
+        target = rand.choice(FUCKOFF_CHOICES)
     num_sent = sendall_count(sock, (
         b'HTTP/1.1 302 Fuck you\r\n'
         b'Location: /fuckoff/%s\r\n'
@@ -226,7 +236,9 @@ def req_handler(chunk_delay, sock, addr):
                 #print(b'PATH: %s' % (req_path or b'NA'))
                 #print(b'QUERY: %s' % (req_query or b'NA'))
                 logging.debug('%s:%s:%s' % (
-                    addr[0], addr[1], req_path.decode('utf-8', errors='ignore')
+                    addr[0],
+                    addr[1],
+                    (req_path or 'NA').decode('utf-8', errors='ignore')
                 ))
                 # Choose view ID
                 for test_path, test_view_id in REQUEST_MAP.items():
@@ -238,14 +250,16 @@ def req_handler(chunk_delay, sock, addr):
                 render_stats(sock)
             elif view_id == 'home':
                 render_home(sock)
-            elif view_id == 'fuckoff_random':
-                num_sent += render_fuckoff_random(sock)
             elif view_id == 'fuckoff_slow':
                 num_sent += render_fuckoff_slow(chunk_delay, sock)
-            elif view_id == 'fuckoff_honeypot':
-                num_sent += render_fuckoff_honeypot(sock)
             elif view_id == 'fuckoff_gzip':
                 num_sent += render_fuckoff_gzip(sock)
+            elif view_id == 'fuckoff_honeypot':
+                num_sent += render_fuckoff_honeypot(sock)
+            elif view_id == 'fuckoff_random':
+                num_sent += render_fuckoff_random(sock)
+            elif view_id == 'fuckoff_random_local':
+                num_sent += render_fuckoff_random(sock, local=True)
             else:
                 render_404(sock)
 
