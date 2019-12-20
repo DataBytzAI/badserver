@@ -25,7 +25,7 @@ Redirect bots to `bad-server-hostname:8090/fuckoff`
 Check it here http://bad.grablab.org
 
 
-# Running on 80 port
+## Running on 80 port
 
 To bind non-root process to 80 port you can use `sysctl -w net.ipv4.ip_unprivileged_port_start=0`. Do not forget to write it to "/etc/sysctl.conf"
 
