@@ -6,12 +6,25 @@ import logging
 from argparse import ArgumentParser
 from functools import partial
 from datetime import datetime, timedelta
+import os
+from random import SystemRandom
 
 from redis import Redis
 import gevent
 from gevent.server import StreamServer
 
+rand = SystemRandom()
 RESPONSE_CHUNK_DELAY = 1
+FUCKOFF_CHOICES = [b'slow', b'gzip']
+REQUEST_MAP = {
+    b'/': 'home',
+    b'/stats': 'stats',
+    b'/fuckoff/random': 'fuckoff_random',
+    b'/fuckoff/slow': 'fuckoff_slow',
+    b'/fuckoff/gzip': 'fuckoff_gzip',
+    b'/home': 'home',
+}
+
 
 
 def render_stats(sock):
@@ -50,8 +63,17 @@ def render_stats(sock):
         sock.sendall(item + b'\r\n')
 
 
+def render_fuckoff_random(sock):
+    target = rand.choice(FUCKOFF_CHOICES)
+    sock.sendall((
+        b'HTTP/1.1 302 OK\r\n'
+        b'Location: /fuckoff/%s\r\n'
+        b'\r\n'
+        % target
+    ))
 
-def render_fuckoff(chunk_delay, sock):
+
+def render_fuckoff_slow(chunk_delay, sock):
     initial_data = (
         b'HTTP/1.1 200 OK\r\n'
         b'Content-Type: text/html; charset=utf-8\r\n'
@@ -68,6 +90,22 @@ def render_fuckoff(chunk_delay, sock):
         sock.sendall(b'\r\n')
 
 
+def render_fuckoff_gzip(sock):
+    fname = 'data/10G.bin.gz'
+    file_size = os.path.getsize(fname)
+    initial_data = (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Encoding: gzip\r\n'
+        b'Content-Length: %d\r\n'
+        b'\r\n'
+        % file_size
+    )
+    sock.sendall(initial_data)
+    with gevent.Timeout(60 * 10):
+        with open(fname, 'rb') as inp:
+            sock.sendfile(inp)
+
+
 def render_404(sock):
     sock.sendall((
         b'HTTP/1.1 404 OK\r\n'
@@ -81,7 +119,7 @@ def render_home(sock):
     with open('templates/home.html', 'rb') as inp:
         data = inp.read()
     sock.sendall((
-        b'HTTP/1.1 404 OK\r\n'
+        b'HTTP/1.1 200 OK\r\n'
         b'Content-Type: text/html; charset=utf-8\r\n'
         b'Content-Length: %d\r\n'
         b'\r\n'
@@ -120,20 +158,25 @@ def req_handler(chunk_delay, sock, addr):
                 req_path, req_query = parse_req_url(line)
                 #print(b'PATH: %s' % (req_path or b'NA'))
                 #print(b'QUERY: %s' % (req_query or b'NA'))
-                if req_path == b'/stats':
-                    view_id = 'stats'
-                elif req_path == b'/fuckoff':
-                    view_id = 'fuckoff'
-                elif req_path == b'/':
-                    view_id = 'home'
+                logging.debug('%s:%s:%s' % (
+                    addr[0], addr[1], req_path.decode('utf-8', errors='ignore')
+                ))
+                # Choose view ID
+                for test_path, test_view_id in REQUEST_MAP.items():
+                    if test_path == req_path:
+                        view_id = test_view_id
                 while line.rstrip():
                     line = fsock.readline()
             if view_id == 'stats':
                 render_stats(sock)
             elif view_id == 'home':
                 render_home(sock)
-            elif view_id == 'fuckoff':
-                render_fuckoff(chunk_delay, sock)
+            elif view_id == 'fuckoff_random':
+                render_fuckoff_random(sock)
+            elif view_id == 'fuckoff_slow':
+                render_fuckoff_slow(chunk_delay, sock)
+            elif view_id == 'fuckoff_gzip':
+                render_fuckoff_gzip(sock)
             else:
                 render_404(sock)
 
@@ -152,7 +195,7 @@ def req_handler(chunk_delay, sock, addr):
                 rdb.incrby('hr-hits-num:%s' % hour_key, 1)
                 # add this visit time to total time of visits in current hour
                 rdb.incrbyfloat('hr-hits-time:%s' % hour_key, str('%.03f' % elapsed))
-    except BrokenPipeError:
+    except ConnectionError:
         pass
     except Exception as ex:
         logging.exception('')
